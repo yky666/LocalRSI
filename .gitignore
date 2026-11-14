@@ -1,0 +1,15 @@
+python/
+data/
+workspace/
+__pycache__/
+*.pyc
+config.json
+*.log
+.env
+*.pem
+*.key
+*.gguf
+models/
+runtime/
+artifacts/
+test-results/
