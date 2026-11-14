@@ -72,5 +72,9 @@ class CoreTests(unittest.TestCase):
         messages=[{'role':'system','content':'system'},{'role':'user','content':'old goal'},{'role':'assistant','content':'x'*12000},{'role':'user','content':'new goal'}]
         out=providers.compact(messages,[])
         self.assertEqual(next(m['content'] for m in out if m['role']=='user'),'new goal')
+    def test_calculator_no_code_execution(self):
+        self.assertEqual(app.tool('calculate',{'expression':'17*23'})['result'],391)
+        with self.assertRaises(ValueError):app.tool('calculate',{'expression':"__import__('os').getcwd()"})
+        with self.assertRaises(ValueError):app.tool('calculate',{'expression':'2**99999'})
 
 if __name__=='__main__':unittest.main()

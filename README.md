@@ -42,7 +42,7 @@ CLI 交互模式默认续接上一条已完成任务；输入 `/exit` 退出。�
 | 浏览器 | 独立 Edge 配置，打开、读取控件、CSS 点击、填表、截图 | 代码已接入，界面端到端未验证 |
 | 桌面 | 截图、批准后点击坐标、输入 Unicode | 代码已接入，实际控制未验证 |
 | 语音 | Windows 离线朗读、Vosk 中文 WAV 转写、显式按钮录音 | 合成语音和 WAV 转写通过；麦克风未测 |
-| 反馈改进 | 任务评分/纠正、训练样本导出、候选提示词六项评测、无退化门槛、手动启用/回滚 | 门槛与导出单元测试通过；完整候选评测待运行 |
+| 反馈改进 | 任务评分/纠正、训练样本导出、候选提示词六项评测、无退化门槛、手动启用/回滚 | 完整流程实测，基线/候选均5/6，未提高；已回滚 |
 | 远端推理 | OpenAI 兼容文本/视觉接口，密钥仅环境变量读取 | 适配器实现，真实远端待连接 |
 | LoRA / QLoRA | 独立 CUDA 训练脚本、训练/测试划分、前后评估、不自动部署 | 语法检查；未在 GPU 实训 |
 
@@ -94,6 +94,8 @@ CUDA_VISIBLE_DEVICES=1 python train_lora.py --model Qwen/Qwen3-4B-Instruct-2507 
 .\python\python.exe tests\test_runtime.py
 ```
 
-11 项核心测试已通过。GitHub Actions 配置为 Windows + Python 3.12。`tests/test_runtime.py` 为显式运行的本机服务检查，CI 不下载大模型。
+12 项核心测试已通过。GitHub Actions 配置为 Windows + Python 3.12。`tests/test_runtime.py` 为显式运行的本机服务检查，CI 不下载大模型。
+
+六项模型冒烟评测中，基线和候选均把 17×23 错答为 401，其余五项通过。已加入受限 AST 算术工具，真实 Agent 再测会调用 calculate 并返回正确结果391。原始模型心算错误仍然存在；本次修复是工具增强，不是训练提升。
 
 源码 MIT；依赖和模型使用各自许可证，包括 PyMuPDF 的 AGPL/商业许可，分发时需遵守其条款。模型下载自 Qwen、Unsloth、ggml-org，推理引擎来自 llama.cpp，嵌入来自 BAAI/Qdrant，中文语音来自 Vosk。模型不包含在 Git 仓库内。
