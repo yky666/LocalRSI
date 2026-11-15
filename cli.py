@@ -8,6 +8,8 @@ def main():
     if hasattr(sys.stdout,'reconfigure'):sys.stdout.reconfigure(encoding='utf-8',errors='replace')
     p=argparse.ArgumentParser(description='LocalRSI local agent CLI')
     p.add_argument('prompt',nargs='?');p.add_argument('--image');p.add_argument('--note');p.add_argument('--status',action='store_true')
+    p.add_argument('--skills',default='',help='Comma-separated bundled skill IDs')
+    p.add_argument('--attach',action='append',default=[],help='Existing workspace file path; repeat up to eight times')
     p.add_argument('--thinking',choices=['fast','standard','deep'],default='standard');p.add_argument('--mode',choices=['chat','plan','agent'],default='agent');p.add_argument('--goal',action='store_true');p.add_argument('--mcp',default='');p.add_argument('--resume');p.add_argument('--capabilities',action='store_true');p.add_argument('--provider',choices=['local','remote'],default='local');p.add_argument('--groups',default='');p.add_argument('--continue-task');p.add_argument('--index');p.add_argument('--search');p.add_argument('--record',action='store_true');a=p.parse_args()
     if a.capabilities:print(json.dumps(api('/api/capabilities'),ensure_ascii=False,indent=2));return
     if a.status:print(json.dumps(api('/api/status'),ensure_ascii=False,indent=2));return
@@ -20,6 +22,7 @@ def main():
         prompt=a.prompt or ('继续目标' if a.resume else input('\nLocalRSI > '))
         if prompt.strip() in ('/exit','/quit'):return
         body={'thinking':a.thinking,'agent_mode':a.mode,'goal':a.goal,'mcp_servers':[s for s in a.mcp.split(',') if s],'prompt':prompt,'provider':a.provider,'parent':parent,'groups':[s for s in a.groups.split(',') if s]}
+        body.update(skills=[s for s in a.skills.split(',') if s],attachments=a.attach)
         if a.image:
             image=pathlib.Path(a.image);mime=mimetypes.guess_type(image.name)[0]
             if mime not in ('image/png','image/jpeg') or image.stat().st_size>5*1024*1024:raise ValueError('Use PNG/JPEG under 5MB')
