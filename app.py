@@ -11,6 +11,7 @@ PORT = int(os.environ.get('LOCALRSI_PORT','8090'))
 HOSTED = os.environ.get('LOCALRSI_HOSTED')=='1'
 HOSTED_TOOLS = {'calculate','list_files','read_file','write_file','search_memory','read_document','index_document','search_knowledge','create_docx','ocr_image','render_pdf_page','apply_edit','transcribe_audio','update_plan'}
 HOSTED_TOOLS.add('analyze_image')
+HOSTED_TOOLS.update({'read_file_lines','search_files'})
 if os.name!='nt':HOSTED_TOOLS.discard('ocr_image');HOSTED_TOOLS.discard('transcribe_audio')
 LOCK = threading.Lock()
 STATE_LOCK=threading.RLock()
@@ -182,9 +183,19 @@ def run(t,decision=None):
                 schemas=((SCHEMAS if needs_tools else [])+extension_tools.schemas(t.get('groups',[]))+mcp_schemas) if t.get('agent_mode','agent')=='agent' else []
                 if t.get('goal') and t.get('agent_mode','agent')=='agent':schemas.append(PLAN_SCHEMA)
                 if HOSTED:schemas=[s for s in schemas if s['function']['name'] in HOSTED_TOOLS]
-                context=providers.compact(t['messages'],schemas) if t.get('provider','local')=='local' else t['messages']
+                remote=t.get('provider','local')=='remote'
+                if remote:
+                    context,removed=providers.remote_context(t['messages'],schemas,objective=t.get('objective'))
+                    if removed:event(t,'上下文管理：保留原始目标与最近工具记录，完整历史已存档')
+                else:context=providers.compact(t['messages'],schemas)
                 started=time.perf_counter()
-                r=providers.chat(context,schemas,mode=t.get('provider','local'),max_tokens=policy['tokens'])
+                try:
+                    r=providers.chat(context,schemas,mode=t.get('provider','local'),max_tokens=({'fast':1024,'standard':3072,'deep':6144}[t.get('thinking','standard')] if remote else policy['tokens']),thinking=(t.get('thinking')=='deep') if remote else None)
+                except providers.ToolProtocolError as error:
+                    t['protocol_repairs']=t.get('protocol_repairs',0)+1
+                    if t['protocol_repairs']>2:raise
+                    t['messages'].append({'role':'user','content':'工具协议校验失败，未执行任何动作。请修正为一个符合已提供 schema 的 JSON 对象：'+str(error)})
+                    event(t,'正在修复工具调用格式（尚未执行工具）');continue
                 t.setdefault('metrics',[]).append({'seconds':round(time.perf_counter()-started,3),'usage':r.get('usage',{}),'timings':r.get('timings',{})})
                 m=r['choices'][0]['message'];t['messages'].append(m)
                 calls=m.get('tool_calls') or []
@@ -299,7 +310,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.trusted(): return self.respond(403,{'error':'Local origin required'})
         if self.path=='/': return self.respond(200,(ROOT/'web'/'index.html').read_bytes(),'text/html; charset=utf-8')
-        if self.path=='/api/capabilities':return self.respond(200,{'thinking_modes':modes.MODES,'agent_modes':['chat','plan','agent'],'mcp_servers':[] if HOSTED else list(mcp_bridge.configured()),'mcp_transport':'stdio','native_reasoning':False,'shared_hosting':HOSTED,'skills':[{k:s[k] for k in ('id','title','sha256')} for s in skill_library.catalog()]})
+        if self.path=='/api/capabilities':return self.respond(200,{'thinking_modes':modes.MODES,'agent_modes':['chat','plan','agent'],'mcp_servers':[] if HOSTED else list(mcp_bridge.configured()),'mcp_transport':'stdio','native_reasoning':bool(features.config().get('remote',{}).get('native_thinking')),'shared_hosting':HOSTED,'skills':[{k:s[k] for k in ('id','title','sha256')} for s in skill_library.catalog()]})
         if self.path=='/api/status': return self.respond(200,{'name':'LocalRSI','version':'0.3.0','workspace':str(WORK),'vision_ready':bool(features.config().get('vision',{}).get('base_url')) or (not HOSTED and (AI/'models'/'SmolVLM-500M-Instruct-Q8_0.gguf').exists()),'remote_ready':bool(features.config().get('remote',{}).get('base_url')),'index_jobs':list(features._jobs.values()),'tasks':[{'id':t['id'],'status':t['status'],'prompt':next((m['content'][:80] for m in reversed(t['messages']) if m['role']=='user'),'')} for t in TASKS.values()]})
         if self.path=='/api/notes':
             with db() as c:rows=c.execute('SELECT id,text,created FROM notes ORDER BY id DESC').fetchall()

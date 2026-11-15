@@ -1,7 +1,9 @@
-import base64,json,pathlib,subprocess,uuid,shutil
+import base64,json,pathlib,subprocess,uuid,shutil,os
 import features as f
 
 DEFS={
+'read_file_lines':('Read a bounded range of UTF-8 source lines with line numbers',{'path':'string','start':'integer','end':'integer'},False,'coding'),
+'search_files':('Search literal text in workspace source files; returns paths and line numbers',{'path':'string','query':'string'},False,'coding'),
 'read_document':('Read one page of PDF/DOCX/text with source',{'path':'string','page':'integer'},False,'documents'),
 'index_document':('Index document in local vector knowledge base',{'path':'string'},False,'knowledge'),
 'search_knowledge':('Retrieve cited knowledge chunks',{'query':'string'},False,'knowledge'),
@@ -44,6 +46,32 @@ def backup(path):
 
 def execute(name,args,app):
     path=lambda key='path':app.safe_path(args[key])
+    if name=='read_file_lines':
+        start,end=args['start'],args['end']
+        if type(start) is not int or type(end) is not int or not 1<=start<=end or end-start>=400:raise ValueError('Read 1–400 lines at a time')
+        p=path()
+        if p.stat().st_size>2*1024*1024:raise ValueError('Source file exceeds 2MB')
+        lines=p.read_text(encoding='utf-8').splitlines()
+        return {'path':args['path'],'total_lines':len(lines),'text':'\n'.join(str(i+1)+': '+line for i,line in enumerate(lines) if start<=i+1<=end)[:16000]}
+    if name=='search_files':
+        root=path();query=args['query'];matches=[];scanned=0
+        if not isinstance(query,str) or not 1<=len(query)<=300:raise ValueError('Use a literal query of 1–300 characters')
+        if not root.is_dir():raise ValueError('Search path must be a directory')
+        for folder,dirs,files in os.walk(root,followlinks=False):
+            dirs[:]=[d for d in sorted(dirs) if d not in ('.git','node_modules','venv','.venv','__pycache__') and not (pathlib.Path(folder)/d).is_symlink() and not (hasattr(pathlib.Path(folder)/d,'is_junction') and (pathlib.Path(folder)/d).is_junction())]
+            for filename in sorted(files):
+                scanned+=1
+                if scanned>1000:return {'matches':matches,'truncated':True,'scanned':1000}
+                try:
+                    p=app.safe_path(str((pathlib.Path(folder)/filename).relative_to(app.WORK)))
+                    if not p.is_file() or p.stat().st_size>1024*1024:continue
+                    text=p.read_text(encoding='utf-8')
+                    if '\0' in text:continue
+                    for number,line in enumerate(text.splitlines(),1):
+                        if query.casefold() in line.casefold():matches.append({'path':str(p.relative_to(app.WORK)),'line':number,'text':line[:400]})
+                        if len(matches)>=50:return {'matches':matches,'truncated':True,'scanned':scanned}
+                except (OSError,UnicodeError,ValueError):continue
+        return {'matches':matches,'truncated':False,'scanned':scanned}
     if name=='read_document':return f.document(path(),int(args['page']))
     if name=='index_document':return f.index(path())
     if name=='search_knowledge':return f.search(args['query'])

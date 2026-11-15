@@ -2,6 +2,16 @@
 
 更新：2026-11-15。以下严格区分已实现、待接入和长期研究目标。
 
+## 最新优先级：先建设 Agent 框架
+
+用户明确要求先让 Qwen3.8-27B 驱动的 LocalRSI 具备稳定的类 Codex 工作能力，暂不启动 autoresearch 实验。sg88n5-2 三张卡已获授权可全天使用，但用户要求保留现有 28439 服务，训练等待资源；本轮没有启动训练、资源等待守护程序或实验队列。
+
+本轮框架增强：深度模式接入已实测支持的原生 enable_thinking；远端 fast/standard/deep 输出预算分别为 1024/3072/6144 tokens；远端上下文预算管理保留当前目标与完整的最近工具调用组；工具 JSON/参数错误最多修复两次；新增有行号的源码读取和工作区文本搜索。完整任务历史仍保存在任务记录中，压缩不是长期记忆训练。
+
+原生深度模式的真实工具调用测试：17×23 经 calculate 返回 391，期间一次协议错误被自动修复，最终任务完成。该测试只证明链路可用，不是模型能力基准，也不代表达到 GPT-6 Astra。
+
+接下来的框架工作按顺序为：隔离代码执行 worker → 更完整的对话/任务恢复界面 → 浏览器与 MCP 的隔离接入 → 多模态上下文与技能路由 → 真实工作任务验收。持续学习和 PEAR 留待框架稳定后进行。
+
 ## 当前部署
 
 公网入口：https://localrsi-workspace-kaiyuan.frizzyice3.chatgpt.site/workspace
@@ -46,8 +56,8 @@ Qwen3.8-27B 官方模型卡：https://huggingface.co/Qwen/Qwen3.8-27B
 Agent 功能参考：https://github.com/QwenLM/Qwen-Agent
 固定预算自动实验参考：https://github.com/karpathy/autoresearch
 
-当前 fast/standard/deep 调整 Agent 预算与复核流程，尚不是原生 reasoning_effort 的完整映射。共享站点禁用任意命令、浏览器/桌面控制与外部 MCP，需隔离 worker 后开放，不能说已达到 Codex 等价能力。
+当前 fast/standard/deep 调整 Agent 预算与复核流程；远端 deep 现已启用实测支持的原生 thinking 开关，但尚不是 reasoning_effort 多档强度的完整映射。共享站点禁用任意命令、浏览器/桌面控制与外部 MCP，需隔离 worker 后开放，不能说已达到 Codex 等价能力。
 
 对标 GPT-6 Astra 是长期目标，当前没有同题、同工具、同预算的对照实验，不能声明齐平或超越。先衡量自有科研任务成功率、复现误差、工具成功率、视觉正确率、每任务时间和成本，再判断有无提升。
 
-持续训练启动前需要：可用节点与 GPU UUID、每日 GPU 小时、首个科研方向/复现论文。微信文章未能读取，还需标题或对应项目链接。
+已明确未来资源：sg88n5-2 三张 RTX 6000D、全天可运行；优先方向 SkillSuture 原子任务。已找到 /data/yangkaiyuan/SkillSuture，保留正在运行的咖啡任务评测。具身项目已明确为 https://github.com/mit-han-lab/pear ，已审阅源码 f32aa1f7c2ec9c3f45630cc9f8541b3201e8e087；官方完整配方使用 32 个节点，当前三卡需要缩小规模并做硬件适配。按最新优先级暂不部署训练环境或运行实验。
