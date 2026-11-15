@@ -57,6 +57,7 @@ export async function gateway(request: Request): Promise<Response> {
     const count=await database.prepare("SELECT count(*) AS n FROM requests WHERE owner=? AND status!='done' AND created>?").bind(owner,now-180000).first<any>();
     if(count.n>=12)return json({error:'Too many pending requests'},429);
     const payload=request.method==='POST'?await body(request):null;
+    if(new TextEncoder().encode(JSON.stringify(payload)).length>1800000)return json({error:'上传内容超过网页单次传输预算，请缩短视频区间或减小附件。'},413);
     const id=crypto.randomUUID();
     await database.prepare("INSERT INTO requests (id,owner,path,method,payload,status,created) VALUES (?,?,?,?,?,'queued',?)").bind(id,owner,path,request.method,JSON.stringify(payload),now).run();
     // Results are transport records, not the durable task store. Remove old bodies.

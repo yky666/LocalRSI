@@ -19,7 +19,7 @@
 </main></div><div id="toast" class="toast" role="alert" hidden></div>
 <script>
 
-let image=null,task=null,timer=null;const $=id=>document.getElementById(id);
+let image=null,videoImages=[],task=null,timer=null;const $=id=>document.getElementById(id);
 async function api(path,body){const r=await fetch(path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});const d=await r.json();if(!r.ok)throw Error(d.error||r.status);return d}
 function error(e){$('state').textContent='暂时未能完成';$('toast').textContent=e.message;$('toast').hidden=false;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('toast').hidden=true,7000);$('send').disabled=false}
 async function status(){const s=await api('/api/status');$('connection').textContent='● 服务已连接';$('workspace').textContent=s.workspace;$('vision').textContent=s.vision_ready?'视觉权重已就绪；按需切换加载':'视觉权重准备中';$('history').replaceChildren();s.tasks.slice(-20).reverse().forEach(t=>{const b=document.createElement('button');b.className='secondary';b.textContent=t.prompt||('任务 '+t.id.slice(0,8));b.title=(t.prompt||'')+' · '+t.status;b.onclick=()=>{showView('tasks');task=t.id;poll()};$('history').append(b)})}
@@ -27,7 +27,7 @@ async function poll(){clearTimeout(timer);try{const requestedTask=task;const t=a
 $('send').onclick=async()=>{try{$('send').disabled=true;$('answer').textContent='';const t=await api('/api/tasks',{prompt:$('prompt').value,image});task=t.id;$('prompt').value='';image=null;$('clear').click();if(typeof attachedPaths!=='undefined')attachedPaths=[];poll()}catch(e){error(e)}};
 async function decide(approve){try{$('approval').hidden=true;await api('/api/approve',{id:task,approve});poll()}catch(e){error(e)}}$('approve').onclick=()=>decide(true);$('deny').onclick=()=>decide(false);
 $('image').onchange=async e=>{const f=e.target.files[0];if(!f)return;if(!['image/png','image/jpeg'].includes(f.type)||f.size>10*1024*1024){error(Error('请选择小于10MB的PNG或JPEG'));return}try{const bitmap=await createImageBitmap(f),scale=Math.min(1,768/Math.max(bitmap.width,bitmap.height));const c=document.createElement('canvas');c.width=Math.round(bitmap.width*scale);c.height=Math.round(bitmap.height*scale);c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height);image=c.toDataURL('image/jpeg',.85);$('preview').src=image;$('preview').hidden=false;$('clear').hidden=false;bitmap.close()}catch(e){error(e)}};
-$('clear').onclick=()=>{image=null;$('image').value='';$('preview').hidden=true;$('clear').hidden=true};$('saveNote').onclick=async()=>{try{await api('/api/notes',{text:$('note').value});$('note').value='';$('noteStatus').textContent='已保存，可通过记忆搜索工具检索。'}catch(e){error(e)}};status().catch(error);
+$('clear').onclick=()=>{image=null;videoImages=[];$('image').value='';$('preview').hidden=true;$('clear').hidden=true};$('saveNote').onclick=async()=>{try{await api('/api/notes',{text:$('note').value});$('note').value='';$('noteStatus').textContent='已保存，可通过记忆搜索工具检索。'}catch(e){error(e)}};status().catch(error);
 
 
 // Capability controls keep all actions on the same local API as the CLI.
@@ -81,28 +81,45 @@ const refreshStatus=status;status=async()=>{try{await refreshStatus()}catch(e){$
 // User-initiated paste/drop only; never read the clipboard in the background.
 let attachedPaths=[],attachmentBusy=false;
 const attachmentBox=document.createElement('div');attachmentBox.className='attachment-panel';
-attachmentBox.innerHTML='<label class="secondary">添加文件 / 图片 / 视频 <input id="agentFiles" type="file" multiple style="max-width:220px"></label><p id="attachmentInfo" class="hint">可在输入框粘贴或拖放；普通文件每个 ≤5MB，最多 8 个。视频在浏览器抽取 4 帧，不分析音轨。</p><button id="removeAttachments" class="secondary" type="button">清除附件选择</button><div id="skillPicker" class="hint"></div>';
+attachmentBox.innerHTML='<label class="secondary">添加文件 / 图片 / 视频 <input id="agentFiles" type="file" multiple style="max-width:220px"></label><p id="attachmentInfo" class="hint">可在输入框粘贴或拖放；普通文件每个 ≤5MB，最多 8 个。视频可调采样，最多 48 帧；不分析音轨。</p><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0"><label>视频频率 <select id="videoFps"><option value="0.5">每 2 秒 1 帧</option><option value="1" selected>每秒 1 帧</option><option value="2">每秒 2 帧</option><option value="4">每秒 4 帧</option></select></label><label>起点（秒）<input id="videoStart" type="number" min="0" value="0" style="width:75px"></label><label>终点（秒）<input id="videoEnd" type="number" min="0" placeholder="结尾" style="width:75px"></label></div><button id="removeAttachments" class="secondary" type="button">清除附件选择</button><div id="skillPicker" class="hint"></div>';
 $('prompt').after(attachmentBox);
 const dataURL=file=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(Error('读取文件失败'));r.readAsDataURL(file)});
 function attachmentStatus(text){$('attachmentInfo').textContent=text||('已附加：'+(attachedPaths.join('、')||'无文件')+(image?' · 含视觉输入':''))}
+function videoSamplePlan(duration,fps,start=0,end=duration){
+  if(!Number.isFinite(duration)||duration<=0||![.5,1,2,4].includes(fps)||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||start>=duration)throw Error('请设置有效的视频采样区间和频率');
+  end=Math.min(end,duration);const requested=Math.ceil((end-start)*fps),count=Math.max(1,Math.min(48,requested));
+  const step=(end-start)/count;return {start,end,count,requested,step,times:Array.from({length:count},(_,i)=>Math.min(duration*.999,start+(i+.5)*step))};
+}
 async function videoFrames(file){
   if(file.size>150*1024*1024)throw Error('视频抽帧上限 150MB');
   const url=URL.createObjectURL(file),v=document.createElement('video');v.muted=true;v.preload='auto';
   const ready=event=>new Promise((resolve,reject)=>{const timeout=setTimeout(()=>finish(Error('视频加载超时或浏览器不支持编码')),15000);const ok=()=>finish();const bad=()=>finish(Error('无法解码视频'));function finish(e){clearTimeout(timeout);v.removeEventListener(event,ok);v.removeEventListener('error',bad);e?reject(e):resolve()}v.addEventListener(event,ok,{once:true});v.addEventListener('error',bad,{once:true})});
-  try{const loaded=ready('loadeddata');v.src=url;await loaded;if(!Number.isFinite(v.duration)||v.duration<=0)throw Error('视频时长无效');
-    const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=768;const ctx=canvas.getContext('2d');ctx.fillStyle='#111';ctx.fillRect(0,0,1280,768);const times=[];
-    for(let i=0;i<4;i++){const t=Math.min(v.duration*.999,v.duration*(i+.5)/4);const seek=ready('seeked');v.currentTime=t;await seek;const x=(i%2)*640,y=Math.floor(i/2)*384;const scale=Math.min(640/v.videoWidth,352/v.videoHeight);const w=v.videoWidth*scale,h=v.videoHeight*scale;ctx.drawImage(v,x+(640-w)/2,y+(352-h)/2,w,h);ctx.fillStyle='white';ctx.font='18px sans-serif';ctx.fillText(t.toFixed(2)+' s',x+12,y+376);times.push(t.toFixed(2));}
-    return {image:canvas.toDataURL('image/jpeg',.85),note:'视频 '+file.name+'，总时长 '+v.duration.toFixed(2)+' 秒。仅提供 '+times.join('、')+' 秒的 4 张采样帧（从左到右、从上到下）；没有音频，未观察其余时间，不能据此断言完整动作过程。'};
+  try{const loaded=ready('loadeddata');v.src=url;await loaded;
+    const fps=Number($('videoFps').value),start=Number($('videoStart').value||0),end=$('videoEnd').value?Number($('videoEnd').value):v.duration;
+    const plan=videoSamplePlan(v.duration,fps,start,end),images=[];
+    const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=768;const ctx=canvas.getContext('2d');
+    for(let i=0;i<plan.count;i++){
+      if(i%4===0){ctx.fillStyle='#111';ctx.fillRect(0,0,1280,768)}
+      const t=plan.times[i];if(Math.abs(v.currentTime-t)>.00001){const seek=ready('seeked');v.currentTime=t;await seek;}
+      const slot=i%4,x=(slot%2)*640,y=Math.floor(slot/2)*384,scale=Math.min(640/v.videoWidth,352/v.videoHeight),w=v.videoWidth*scale,h=v.videoHeight*scale;
+      ctx.drawImage(v,x+(640-w)/2,y+(352-h)/2,w,h);ctx.fillStyle='white';ctx.font='18px sans-serif';ctx.fillText('#'+(i+1)+'  '+t.toFixed(2)+' s',x+12,y+376);
+      attachmentStatus('正在采样 '+(i+1)+'/'+plan.count+' 帧…');
+      if(i%4===3||i===plan.count-1)images.push(canvas.toDataURL('image/jpeg',.8));
+    }
+    if(images.reduce((n,s)=>n+s.length,0)>6*1024*1024)throw Error('采样图像超过上传预算，请缩短区间或降低频率');
+    const note='视频 '+file.name+'，总时长 '+v.duration.toFixed(2)+' 秒；分析区间 '+plan.start.toFixed(2)+'–'+plan.end.toFixed(2)+' 秒。请求 '+fps+' 帧/秒，实际 '+plan.count+' 帧，平均间隔 '+plan.step.toFixed(2)+' 秒'+(plan.requested>48?'（已达到 48 帧上限，均匀降低采样频率）':'')+'。分 '+images.length+' 批、每批最多四帧，批内从左到右、从上到下，帧上附时间戳。没有音轨；未采样时间不能当作已观察。';
+    return {image:images[0],images,note,plan};
   }finally{v.removeAttribute('src');v.load();URL.revokeObjectURL(url)}
 }
+
 async function attachFiles(files){
  if(attachmentBusy)return;attachmentBusy=true;const wasDisabled=$('send').disabled;$('send').disabled=true;
  try{for(const file of files){
    attachmentStatus('正在导入 '+file.name+'…');
-   if(file.type.startsWith('video/')){if(image)throw Error('每次任务支持一个视觉输入，请先清除已有图片或视频');const result=await videoFrames(file);image=result.image;$('prompt').value+='\n'+result.note;$('preview').src=image;$('preview').hidden=false;$('clear').hidden=false;}
+   if(file.type.startsWith('video/')){if(image)throw Error('每次任务支持一个视觉输入，请先清除已有图片或视频');const result=await videoFrames(file);image=result.image;videoImages=result.images;$('prompt').value+='\n'+result.note;$('preview').src=image;$('preview').hidden=false;$('clear').hidden=false;}
    else if(file.type.startsWith('image/')){if(image)throw Error('每次任务支持一个视觉输入，请先清除已有图片或视频');if(!['image/png','image/jpeg'].includes(file.type))throw Error('图片支持 PNG / JPEG');if(file.size>5*1024*1024)throw Error('图片上限 5MB');image=await dataURL(file);$('preview').src=image;$('preview').hidden=false;$('clear').hidden=false;}
    else{if(attachedPaths.length>=8)throw Error('最多 8 个文件');if(file.size>5*1024*1024)throw Error('文件上限 5MB');const encoded=await dataURL(file);const uploaded=await api('/api/upload',{name:crypto.randomUUID().slice(0,8)+'-'+file.name,content:encoded.split(',')[1]});attachedPaths.push(uploaded.path);}
- }attachmentStatus();}catch(e){attachmentStatus('导入未全部完成：'+e.message+'；已保留 '+attachedPaths.length+' 个文件');}finally{attachmentBusy=false;$('send').disabled=wasDisabled;$('agentFiles').value=''}
+ }attachmentStatus(videoImages.length?'已附加视频：'+videoImages.length+' 个视觉批次，具体区间与采样间隔见输入框。':undefined);}catch(e){attachmentStatus('导入未全部完成：'+e.message+'；已保留 '+attachedPaths.length+' 个文件');}finally{attachmentBusy=false;$('send').disabled=wasDisabled;$('agentFiles').value=''}
 }
 $('agentFiles').onchange=e=>attachFiles([...e.target.files]);
 $('prompt').addEventListener('paste',e=>{const files=[...(e.clipboardData?.files||[])];if(files.length){e.preventDefault();attachFiles(files)}});
@@ -110,7 +127,7 @@ $('prompt').addEventListener('dragover',e=>{e.preventDefault()});
 $('prompt').addEventListener('drop',e=>{e.preventDefault();attachFiles([...e.dataTransfer.files])});
 $('removeAttachments').onclick=()=>{if(attachmentBusy)return;attachedPaths=[];$('clear').click();attachmentStatus('附件选择已清除；已上传的文件仍保留在个人工作区。')};
 const resetWithAttachments=$('newTask').onclick;$('newTask').onclick=()=>{if(attachmentBusy)return;resetWithAttachments();attachedPaths=[];attachmentStatus()};
-const attachmentApi=api;api=async(path,body)=>{if(path==='/api/tasks'&&body){body={...body,attachments:[...attachedPaths],skills:[...document.querySelectorAll('input[name=skill]:checked')].map(c=>c.value)};}return attachmentApi(path,body)};
+const attachmentApi=api;api=async(path,body)=>{if(path==='/api/tasks'&&body){body={...body,attachments:[...attachedPaths],images:[...videoImages],skills:[...document.querySelectorAll('input[name=skill]:checked')].map(c=>c.value)};}return attachmentApi(path,body)};
 api('/api/capabilities').then(c=>{const label=document.createElement('p');label.textContent='任务技能：未勾选时按任务自动匹配';$('skillPicker').append(label);for(const s of c.skills||[]){const l=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.name='skill';input.value=s.id;l.append(input,document.createTextNode(s.title+' '));l.title='版本 SHA256: '+s.sha256;$('skillPicker').append(l)}}).catch(error);
 
 

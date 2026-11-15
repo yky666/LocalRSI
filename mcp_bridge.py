@@ -7,6 +7,7 @@ import atexit, hashlib, json, os, queue, subprocess, sys, threading, time
 import features
 
 class Session:
+    def alive(self):return self.process.poll() is None
     def __init__(self, spec):
         command = spec.get('command')
         args = spec.get('args', [])
@@ -102,9 +103,11 @@ def _session(server):
     if not spec: raise ValueError('MCP server not configured: ' + server)
     fingerprint = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()
     old = _sessions.get(server)
-    if old and (old[0] != fingerprint or old[1].process.poll() is not None):
+    if old and (old[0] != fingerprint or not old[1].alive()):
         old[1].close(); del _sessions[server]; old = None
-    if not old: _sessions[server] = (fingerprint, Session(spec))
+    if not old:
+        from mcp_http import HttpSession
+        _sessions[server] = (fingerprint, HttpSession(spec) if spec.get('url') else Session(spec))
     return _sessions[server]
 
 def schemas(servers):

@@ -1,0 +1,22 @@
+# Reviewed offline baseline, NOT an enabled production browser/MCP service.
+# One project per member: docker compose -p localrsi-<member-hash> up -d --build
+services:
+  development:
+    build: .
+    init: true
+    user: '10001:10001'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    network_mode: none
+    cpus: 2
+    mem_limit: 4g
+    pids_limit: 256
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+    shm_size: 256m
+    volumes:
+      - workspace:/workspace
+    restart: unless-stopped
+volumes:
+  workspace: {}
