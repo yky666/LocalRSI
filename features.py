@@ -2,8 +2,8 @@
 import base64, concurrent.futures, difflib, hashlib, json, math, os, pathlib, queue, re, sqlite3, subprocess, threading, time, urllib.parse, uuid
 
 ROOT=pathlib.Path(__file__).resolve().parent
-DATA=ROOT/'data'
-WORK=ROOT/'workspace'
+DATA=pathlib.Path(os.environ.get('LOCALRSI_DATA',str(ROOT/'data'))).resolve()
+WORK=pathlib.Path(os.environ.get('LOCALRSI_WORKSPACE',str(ROOT/'workspace'))).resolve()
 _embed=None
 _embed_lock=threading.RLock()
 _browser=None
@@ -15,7 +15,7 @@ class Connection(sqlite3.Connection):
         finally:self.close()
 
 def config():
-    p=ROOT/'config.json'
+    p=pathlib.Path(os.environ.get('LOCALRSI_CONFIG',str(ROOT/'config.json')))
     return json.loads((p if p.exists() else ROOT/'config.example.json').read_text(encoding='utf-8-sig'))
 
 def database():

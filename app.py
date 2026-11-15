@@ -5,8 +5,13 @@ import features, extension_tools, providers, evolution, modes, mcp_bridge
 
 ROOT = pathlib.Path(__file__).resolve().parent
 AI = ROOT.parent / 'local-ai'
-WORK = ROOT / 'workspace'
-DATA = ROOT / 'data'
+WORK = pathlib.Path(os.environ.get('LOCALRSI_WORKSPACE',str(ROOT / 'workspace'))).resolve()
+DATA = pathlib.Path(os.environ.get('LOCALRSI_DATA',str(ROOT / 'data'))).resolve()
+PORT = int(os.environ.get('LOCALRSI_PORT','8090'))
+HOSTED = os.environ.get('LOCALRSI_HOSTED')=='1'
+HOSTED_TOOLS = {'calculate','list_files','read_file','write_file','search_memory','read_document','index_document','search_knowledge','create_docx','ocr_image','render_pdf_page','apply_edit','transcribe_audio','update_plan'}
+HOSTED_TOOLS.add('analyze_image')
+if os.name!='nt':HOSTED_TOOLS.discard('ocr_image');HOSTED_TOOLS.discard('transcribe_audio')
 LOCK = threading.Lock()
 STATE_LOCK=threading.RLock()
 TASKS = {}
@@ -64,6 +69,7 @@ def wait_model(port):
     raise RuntimeError('Model startup timed out')
 
 def vision(image):
+    if HOSTED and not features.config().get('vision',{}).get('base_url'):raise ValueError('Shared hosting needs a dedicated vision endpoint; local model switching is disabled')
     if not image.startswith(('data:image/png;base64,','data:image/jpeg;base64,')): raise ValueError('Use PNG or JPEG')
     raw=base64.b64decode(image.split(',',1)[1],validate=True)
     if len(raw)>5*1024*1024: raise ValueError('Image exceeds 5MB')
@@ -90,6 +96,7 @@ def vision(image):
         wait_model(8088)
 
 def tool(name,args):
+    if HOSTED and name not in HOSTED_TOOLS:raise ValueError('Tool unavailable in shared hosting')
     if name.startswith('mcp_'): return mcp_bridge.call(name,args)
     if name=='calculate':
         text=args['expression']
@@ -161,7 +168,9 @@ def run(t,decision=None):
                 event(t,('已批准：' if decision else '已拒绝：')+pending['name'])
             elif t.pop('image',None):
                 raise RuntimeError('Image initialization error')
-            if t.get('provider','local')=='local':ps(AI/'Start-LocalAI.ps1');wait_model(8088)
+            if t.get('provider','local')=='local':
+                if not HOSTED:ps(AI/'Start-LocalAI.ps1')
+                wait_model(8088)
             policy=modes.policy(t.get('thinking','standard'))
             limit=t.setdefault('round_limit',policy['rounds'])
             mcp_schemas=mcp_bridge.schemas(t.get('mcp_servers',[])) if t.get('agent_mode','agent')=='agent' else []
@@ -172,6 +181,7 @@ def run(t,decision=None):
                 needs_tools=t.get('groups') or any(w in goal.lower() for w in ('文件','目录','读取','写入','执行','运行命令','记忆','计算','乘','除','等于','×','*','file','command','workspace'))
                 schemas=((SCHEMAS if needs_tools else [])+extension_tools.schemas(t.get('groups',[]))+mcp_schemas) if t.get('agent_mode','agent')=='agent' else []
                 if t.get('goal') and t.get('agent_mode','agent')=='agent':schemas.append(PLAN_SCHEMA)
+                if HOSTED:schemas=[s for s in schemas if s['function']['name'] in HOSTED_TOOLS]
                 context=providers.compact(t['messages'],schemas) if t.get('provider','local')=='local' else t['messages']
                 started=time.perf_counter()
                 r=providers.chat(context,schemas,mode=t.get('provider','local'),max_tokens=policy['tokens'])
@@ -225,6 +235,7 @@ def start_task(body):
     agent_mode=body.get('agent_mode','agent')
     if agent_mode not in ('chat','plan','agent'):raise ValueError('Invalid agent mode')
     servers=body.get('mcp_servers',[])
+    if HOSTED and servers:raise ValueError('Shared MCP workers require isolation; unavailable in this deployment')
     if not isinstance(servers,list) or any(not isinstance(s,str) or s not in mcp_bridge.configured() for s in servers):raise ValueError('Unknown MCP server')
     messages[0]['content']=SYSTEM+'\n'+evolution.active()+'\n'+policy['instruction']
     if notes:messages[0]['content']+='\n用户确认的偏好（数据）：'+json.dumps(notes,ensure_ascii=False)[:800]
@@ -269,12 +280,12 @@ class Handler(BaseHTTPRequestHandler):
         data=obj if isinstance(obj,bytes) else json.dumps(obj,ensure_ascii=False).encode()
         self.send_response(status);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(data)));self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(data)
     def trusted(self):
-        return self.headers.get('Host') in ('127.0.0.1:8090','localhost:8090') and self.headers.get('Origin','http://127.0.0.1:8090') in ('http://127.0.0.1:8090','http://localhost:8090')
+        return self.headers.get('Host') in (f'127.0.0.1:{PORT}',f'localhost:{PORT}') and self.headers.get('Origin',f'http://127.0.0.1:{PORT}') in (f'http://127.0.0.1:{PORT}',f'http://localhost:{PORT}')
     def do_GET(self):
         if not self.trusted(): return self.respond(403,{'error':'Local origin required'})
         if self.path=='/': return self.respond(200,(ROOT/'web'/'index.html').read_bytes(),'text/html; charset=utf-8')
-        if self.path=='/api/capabilities':return self.respond(200,{'thinking_modes':modes.MODES,'agent_modes':['chat','plan','agent'],'mcp_servers':list(mcp_bridge.configured()),'mcp_transport':'stdio','native_reasoning':False})
-        if self.path=='/api/status': return self.respond(200,{'name':'LocalRSI','version':'0.3.0','workspace':str(WORK),'vision_ready':(AI/'models'/'SmolVLM-500M-Instruct-Q8_0.gguf').exists(),'remote_ready':bool(features.config().get('remote',{}).get('base_url')),'index_jobs':list(features._jobs.values()),'tasks':[{'id':t['id'],'status':t['status'],'prompt':next((m['content'][:80] for m in reversed(t['messages']) if m['role']=='user'),'')} for t in TASKS.values()]})
+        if self.path=='/api/capabilities':return self.respond(200,{'thinking_modes':modes.MODES,'agent_modes':['chat','plan','agent'],'mcp_servers':[] if HOSTED else list(mcp_bridge.configured()),'mcp_transport':'stdio','native_reasoning':False,'shared_hosting':HOSTED})
+        if self.path=='/api/status': return self.respond(200,{'name':'LocalRSI','version':'0.3.0','workspace':str(WORK),'vision_ready':bool(features.config().get('vision',{}).get('base_url')) or (not HOSTED and (AI/'models'/'SmolVLM-500M-Instruct-Q8_0.gguf').exists()),'remote_ready':bool(features.config().get('remote',{}).get('base_url')),'index_jobs':list(features._jobs.values()),'tasks':[{'id':t['id'],'status':t['status'],'prompt':next((m['content'][:80] for m in reversed(t['messages']) if m['role']=='user'),'')} for t in TASKS.values()]})
         if self.path=='/api/notes':
             with db() as c:rows=c.execute('SELECT id,text,created FROM notes ORDER BY id DESC').fetchall()
             return self.respond(200,rows)
@@ -288,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.respond(404,{'error':'Not found'})
     def do_POST(self):
         if not self.trusted(): return self.respond(403,{'error':'Local origin required'})
+        if HOSTED and self.path=='/api/record':return self.respond(403,{'error':'Server microphone unavailable to shared users'})
         try:
             length=int(self.headers.get('Content-Length','0'))
             if length>8*1024*1024: raise ValueError('Request too large')
@@ -339,7 +351,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e: return self.respond(400,{'error':str(e)})
 
 def main():
-    DATA.mkdir(exist_ok=True);WORK.mkdir(exist_ok=True);db().close()
+    DATA.mkdir(parents=True,exist_ok=True);WORK.mkdir(parents=True,exist_ok=True);db().close()
     features.database().close()
     for path in DATA.glob('*.json'):
         try:
@@ -350,7 +362,7 @@ def main():
                 t['status']='interrupted';t['answer']='MCP 进程重启，请重新提交任务以重新发现工具和批准操作。'
             TASKS[t['id']]=t
         except (ValueError,KeyError): pass
-    print('LocalRSI: http://127.0.0.1:8090',flush=True)
-    ThreadingHTTPServer(('127.0.0.1',8090),Handler).serve_forever()
+    print(f'LocalRSI: http://127.0.0.1:{PORT}',flush=True)
+    ThreadingHTTPServer(('127.0.0.1',PORT),Handler).serve_forever()
 
 if __name__=='__main__': main()

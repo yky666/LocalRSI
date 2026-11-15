@@ -141,3 +141,13 @@ GUI 显示目标步骤、模型调用次数、累计模型耗时和生成 token 
 待确定的生产目标为固定域名 + HTTPS + 受邀成员身份认证 + 独立工作空间 + 共享模型端点。成员的任务、文件、记忆、索引、反馈及审批都需要按身份隔离；可执行命令的 Agent worker 应使用独立低权限容器或账户，不能仅依靠目录检查。公网网关与 GPU 推理服务分离，模型接口不直接暴露。现有的桌面操作、服务器麦克风和本机 PowerShell 功能还需明确为所有者专用能力或替换为服务端可用实现。
 
 部署尚待提供实际服务器入口及域名/访问策略。不要将本节当成已经完成的认证、隔离或生产部署。
+
+## Hosted member portal
+
+Hosted source is in `hosted/`; `hosted_bridge.py` connects outbound over HTTPS, claims authenticated member requests, and runs separate restricted backends with separate data directories. `LOCALRSI_DATA`, `LOCALRSI_WORKSPACE`, `LOCALRSI_PORT` and `LOCALRSI_CONFIG` configure each instance. The cloud transport supports atomic claims, owner-scoped result reads and idempotent result delivery. Expired actions are not automatically replayed.
+
+Shared hosting restricts shell/test execution, desktop and browser control, and arbitrary MCP servers. Member processes share an operating-system account and are not OS sandboxes. Local-only usage retains its original capabilities. The optional `tool_protocol: "json"` provider adapter supports existing inference servers without changing their native tool-parser flags.
+
+Current deployment uses a hosted private Sites portal, a Windows outbound relay and an existing remote GPU model through a loopback-only SSH connection. The remote service supports text and images. Direct deployment of the outbound relay on the GPU server encountered a Cloudflare HTTP 403 response; it was withdrawn rather than left as a second queue consumer. Windows and its SSH connection must remain running for the current compute path. No boot-time automatic restart has been configured.
+
+`Start-HostedBridge.ps1` reads runtime credentials encrypted for the current Windows account. Do not commit those credentials or per-member data. Invitation membership is managed in Sites, not by browser-supplied identity. 29 backend tests pass; gateway auth/CSRF and relay idempotency were tested, as were two distinct members' task/notes isolation and real GPU tool/image inference. An invited member still needs to complete their own sign-in.
