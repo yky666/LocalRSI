@@ -140,7 +140,7 @@ class Browser:
                 action,args,future=self.queue.get()
                 try:
                     if context is None:
-                        cfg=config();context=p.chromium.launch_persistent_context(str(DATA/'browser-profile'),channel=cfg.get('browser_channel','msedge'),headless=cfg.get('browser_headless',False),viewport={'width':1200,'height':800},accept_downloads=False)
+                        cfg=config();context=p.chromium.launch_persistent_context(str(DATA/'browser-profile'),channel=cfg.get('browser_channel','msedge'),headless=cfg.get('browser_headless',False),viewport={'width':1200,'height':800},accept_downloads=False,chromium_sandbox=True)
                         page=context.pages[0] if context.pages else context.new_page()
                     if action=='open':
                         url=urllib.parse.urlparse(args['url'])

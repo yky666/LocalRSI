@@ -18,3 +18,8 @@ def select(ids):
     available={s['id']:s for s in catalog()}
     if any(i not in available for i in ids):raise ValueError('Unknown skill')
     return [available[i] for i in dict.fromkeys(ids)]
+
+def route(prompt,ids):
+    if ids:return select(ids)
+    words={'paper-review':('论文','文献','paper','literature'),'experiment-design':('实验设计','消融','复现','hypothesis','ablation'),'code-change':('代码','编程','修复','测试','code','debug','python')}
+    return select([name for name,keys in words.items() if any(word in prompt.casefold() for word in keys)])

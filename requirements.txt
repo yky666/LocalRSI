@@ -7,3 +7,4 @@ fastembed==0.7.3
 sounddevice>=0.5,<1
 vosk>=0.3.45,<1
 pyttsx3>=2.99,<3
+wasmtime==50.0.1

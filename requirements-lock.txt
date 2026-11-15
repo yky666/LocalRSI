@@ -40,3 +40,4 @@ vosk==0.3.45
 websockets==17.4
 wheel==0.48.0
 win32_setctime==1.2.1
+wasmtime==50.0.1

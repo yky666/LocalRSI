@@ -2,6 +2,7 @@ import base64,json,pathlib,subprocess,uuid,shutil,os
 import features as f
 
 DEFS={
+'run_python':('Execute Python standard-library code in a WASI sandbox: no network, subprocesses, host secrets or writable filesystem. Optional input_path is copied read-only to /inputs/input; use empty string for no file. Print results.',{'code':'string','input_path':'string'},False,'coding'),
 'read_file_lines':('Read a bounded range of UTF-8 source lines with line numbers',{'path':'string','start':'integer','end':'integer'},False,'coding'),
 'search_files':('Search literal text in workspace source files; returns paths and line numbers',{'path':'string','query':'string'},False,'coding'),
 'read_document':('Read one page of PDF/DOCX/text with source',{'path':'string','page':'integer'},False,'documents'),
@@ -29,7 +30,7 @@ def schemas(groups):
     return [{'type':'function','function':{'name':name,'description':desc,'parameters':{'type':'object','properties':{k:{'type':v} for k,v in args.items()},'required':list(args),'additionalProperties':False}}} for name,(desc,args,approval,group) in DEFS.items() if group in groups]
 
 def groups_for(prompt):
-    mapping={'documents':['pdf','docx','word','文档','论文'],'knowledge':['知识','检索','索引','rag'],'vision':['图片','截图','ocr','image'],'coding':['代码','测试','补丁','修改','code'],'browser':['浏览器','网页','网址','http','browser'],'desktop':['桌面','鼠标','屏幕','desktop'],'audio':['语音','音频','朗读','wav']}
+    mapping={'documents':['pdf','docx','word','文档','论文'],'knowledge':['知识','检索','索引','rag'],'vision':['图片','截图','ocr','image'],'coding':['代码','测试','补丁','修改','code','python','程序'],'browser':['浏览器','网页','网址','http','browser'],'desktop':['桌面','鼠标','屏幕','desktop'],'audio':['语音','音频','朗读','wav']}
     return [g for g,words in mapping.items() if any(w in prompt.lower() for w in words)]
 
 def approval_preview(name,args,safe_path):
@@ -46,6 +47,9 @@ def backup(path):
 
 def execute(name,args,app):
     path=lambda key='path':app.safe_path(args[key])
+    if name=='run_python':
+        import sandbox
+        return sandbox.run(args['code'],app.safe_path(args['input_path']) if args.get('input_path') else None)
     if name=='read_file_lines':
         start,end=args['start'],args['end']
         if type(start) is not int or type(end) is not int or not 1<=start<=end or end-start>=400:raise ValueError('Read 1–400 lines at a time')

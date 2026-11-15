@@ -1,8 +1,8 @@
 """Bundled read-only MCP stdio server. Scope: LocalRSI workspace only."""
-import json, pathlib, sys
+import json, pathlib, sys, os
 sys.stdin.reconfigure(encoding='utf-8')
 sys.stdout.reconfigure(encoding='utf-8')
-ROOT = pathlib.Path(__file__).resolve().parents[1] / 'workspace'
+ROOT = pathlib.Path(os.environ.get('LOCALRSI_WORKSPACE',str(pathlib.Path(__file__).resolve().parents[1] / 'workspace'))).resolve()
 initialized = False
 TOOLS = [
     {'name':'list_files','description':'List files in the LocalRSI workspace','inputSchema':{'type':'object','properties':{'path':{'type':'string'}},'required':['path'],'additionalProperties':False}},

@@ -17,7 +17,9 @@ class Session:
         self.serial = 0
         self.responses = queue.Queue(maxsize=128)
         self.timeout = max(1, min(120, float(spec.get('timeout', 30))))
-        self.process = subprocess.Popen([command] + args, cwd=features.ROOT,
+        child_env={k:os.environ[k] for k in ('PATH','SYSTEMROOT','WINDIR','TEMP','TMP') if k in os.environ}
+        child_env['LOCALRSI_WORKSPACE']=str(features.WORK)
+        self.process = subprocess.Popen([command] + args, cwd=features.ROOT,env=child_env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, encoding='utf-8', bufsize=1,
             creationflags=0x08000000 if os.name == 'nt' else 0)
@@ -91,6 +93,8 @@ _registry = {}
 _lock = threading.RLock()
 
 def configured():
+    if os.environ.get('LOCALRSI_HOSTED')=='1':
+        return {'workspace':{'command':'{python}','args':[str(features.ROOT/'scripts/workspace_mcp.py')],'timeout':10}}
     return features.config().get('mcp_servers', {})
 
 def _session(server):
