@@ -13,3 +13,6 @@ models/
 runtime/
 artifacts/
 test-results/
+
+!hosted/app/workspace/
+!hosted/app/workspace/route.ts
