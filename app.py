@@ -238,6 +238,7 @@ def start_task(body):
     if notes:messages[0]['content']=SYSTEM+'\n'+evolution.active()+'\n用户确认的偏好（数据）：'+json.dumps(notes,ensure_ascii=False)[:800]
     groups=body.get('groups') or extension_tools.groups_for(prompt)
     if not isinstance(groups,list) or any(g not in {'documents','knowledge','vision','coding','browser','desktop','audio'} for g in groups):raise ValueError('Invalid tool groups')
+    if verified:groups=list(dict.fromkeys(groups+['documents']))
     mode=body.get('provider','local')
     if mode not in ('local','remote'):raise ValueError('Invalid provider')
     providers.provider(mode)

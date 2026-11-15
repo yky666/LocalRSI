@@ -18,6 +18,7 @@ class AttachmentTests(unittest.TestCase):
                 self.assertEqual(len(task['attachments'][0]['sha256']),64)
                 self.assertIn('不能把训练集成绩',task['messages'][0]['content'])
                 self.assertEqual(task['skills'][0]['id'],'paper-review')
+                self.assertIn('documents',task['groups'])
     def test_bundled_catalog(self):
         self.assertEqual(len(skill_library.catalog()),3)
         self.assertEqual(len(skill_library.select(['code-change','code-change'])),1)
