@@ -20,3 +20,18 @@
 - GitHub 发布状态必须看远端提交是否存在，不能把本地 commit 当作已推送。
 - 500M视觉模型仅适合粗略描述，已知会漏掉测试图中的形状和背景；未达到可靠 GUI 视觉定位要求。
 - 性能数字来自少量本机样例，缓存状态不同，不构成跨任务或其他机器的保证。
+
+## v0.3 validation (2026-11-15)
+
+- 25 unittest tests passed: original core tests plus modes, resumable budgets, MCP approval/config binding, stdio initialization/pagination/Unicode/timeout cleanup.
+- Real CPU Qwen3-4B: fast chat, deep two-pass response, tool-grounded goal completion and MCP list_files with explicit approval completed.
+- Real goal: calculate(17*23) -> 391; update_plan recorded evidence; final response completed in 3 rounds.
+- GUI: Edge headless checked mode controls and configured MCP; actual GUI plan submission tested. CLI fast chat tested against running local service.
+- Deep-review regression: initial implementation ignored a one-sentence constraint; revised review prompt preserved it on re-test. One smoke case is not a general quality benchmark.
+
+| Live case | Model calls | Model request seconds | Output tokens |
+|---|---:|---:|---:|
+| deep_v2 | 2 | 8.10 | 46 |
+| mcp | 2 | 22.23 | 73 |
+
+Timings exclude queue, approval and tool time. No claim of Codex-level reasoning performance or native thinking in the installed Instruct model. MCP support is stdio tools for the explicitly documented protocol versions; no HTTP transport. Goal checklist completion remains model-reported. Remote GPU inference/training was not benchmarked or newly deployed.

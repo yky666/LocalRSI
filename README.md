@@ -90,7 +90,7 @@ CUDA_VISIBLE_DEVICES=1 python train_lora.py --model Qwen/Qwen3-4B-Instruct-2507 
 ## 开发和测试
 
 ```powershell
-.\python\python.exe -m unittest discover -s tests -p test_core.py -v
+.\python\python.exe -m unittest discover -s tests -v
 .\python\python.exe tests\test_runtime.py
 ```
 
@@ -99,3 +99,31 @@ CUDA_VISIBLE_DEVICES=1 python train_lora.py --model Qwen/Qwen3-4B-Instruct-2507 
 六项模型冒烟评测中，基线和候选均把 17×23 错答为 401，其余五项通过。已加入受限 AST 算术工具，真实 Agent 再测会调用 calculate 并返回正确结果391。原始模型心算错误仍然存在；本次修复是工具增强，不是训练提升。
 
 源码 MIT；依赖和模型使用各自许可证，包括 PyMuPDF 的 AGPL/商业许可，分发时需遵守其条款。模型下载自 Qwen、Unsloth、ggml-org，推理引擎来自 llama.cpp，嵌入来自 BAAI/Qdrant，中文语音来自 Vosk。模型不包含在 Git 仓库内。
+
+## v0.3：模式、MCP 与持续目标
+
+GUI 与 CLI 共用 API，可选择：
+
+- `--mode chat|plan|agent`：仅对话、仅制定计划、工具执行。前两种模式不向模型提供工具，也不启动 MCP 进程。
+- `--thinking fast|standard|deep`：每段最多 6 / 12 / 20 轮；输出预算 400 / 700 / 1000 tokens。深度模式增加一次结果复核，遵守原请求格式。它是 Agent 工作流，不是开启当前 Qwen3 Instruct 模型原生 thinking，也不保证质量提升。
+- `--goal`：保存目标、步骤、执行记录与证据。步骤完成状态由 Agent 自报；必须结合实际工具结果检查。轮次或输出预算耗尽标记 `budget_exhausted`，不会冒充完成。
+- `--resume TASK_ID`：为预算耗尽或可安全恢复的中断任务增加一段预算，保留原目标和工具结果。中断操作结果不明时拒绝重放。取消后不自动恢复；重启不自动执行待批准操作。
+- `--mcp workspace`：启用随附只读工作区 MCP 服务，首次工具发现后每次调用仍需明确批准。
+- `--capabilities`：列出服务端支持的模式与已配置 MCP 服务。
+
+```powershell
+.\python\python.exe cli.py "计算17乘23并记录验收结果" --goal --thinking standard
+.\python\python.exe cli.py "为项目制定测试计划" --mode plan --thinking deep
+.\python\python.exe cli.py "使用 MCP workspace 列出根目录" --mcp workspace
+.\python\python.exe cli.py --resume TASK_ID
+```
+
+MCP 服务在本地 `config.json` 的 `mcp_servers` 中配置；`{python}` 使用 LocalRSI 自身解释器。只启动用户配置且本次选中的命令，不接受模型传入可执行程序。配置命令拥有当前用户权限，应只使用可信服务。
+
+```json
+{"mcp_servers":{"workspace":{"command":"{python}","args":["scripts/workspace_mcp.py"],"timeout":15}}}
+```
+
+本版支持 MCP stdio 的 initialize / initialized、分页 tools/list、tools/call、ping、超时及进程清理。支持协议版本 2024-11-05、2025-03-26、2025-06-18、2025-11-25；不宣称支持 2026 协议、Streamable HTTP、资源订阅、sampling 或 elicitation。参照 [MCP 生命周期](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle) 与 [stdio 传输](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)。
+
+GUI 显示目标步骤、模型调用次数、累计模型耗时和生成 token 数；耗时不包含排队、用户审批和工具执行。CPU 4B 适合小任务，长目标应拆分或使用已配置的远端模型。自我改进仍采用反馈、候选、评测、手动启用与回滚；没有未经验证的自动权重更新。
